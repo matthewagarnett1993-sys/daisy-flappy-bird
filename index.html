@@ -83,9 +83,8 @@ function resizeCanvas() {
   CFG.PLAYER_SIZE = Math.round(Math.min(CFG.WIDTH, CFG.HEIGHT) * 0.055);
   CFG.PIPE_WIDTH = Math.round(CFG.WIDTH * 0.1);
   // Redraw start screen if we're on it
-  if (state === 'START') drawStartScreen();
+  if (typeof state !== 'undefined' && state === 'START') drawStartScreen();
 }
-resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
 // ============================================================
@@ -466,6 +465,7 @@ function loop(timestamp) {
 // ============================================================
 //  KICK OFF – draw start screen once assets are ready
 // ============================================================
+resizeCanvas();   // initial sizing (must be after state & drawStartScreen are defined)
 daisyImg.onload = () => drawStartScreen();
 // Also draw immediately in case image is cached or missing
 if (daisyImg.complete) drawStartScreen();
