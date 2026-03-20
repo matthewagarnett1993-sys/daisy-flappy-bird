@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Help Daisy Fly!</title>
+  <style>
+    /* ---------- Global Reset & Centering ---------- */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #222;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      touch-action: manipulation;          /* prevent double-tap zoom on mobile */
+      -webkit-tap-highlight-color: transparent;
+    }
+    canvas {
+      display: block;
+      background: #70c5ce;                 /* sky blue fallback */
+      border-radius: 8px;
+      box-shadow: 0 0 30px rgba(0,0,0,.4);
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+  </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<script>
+// ============================================================
+//  CONFIGURATION
+// ============================================================
+const CFG = {
+  // Canvas (logical) size
+  WIDTH:   400,
+  HEIGHT:  600,
+
+  // Physics
+  GRAVITY:      0.45,
+  JUMP_FORCE:  -7.5,
+  MAX_FALL:     10,
+
+  // Player (Daisy)
+  PLAYER_SIZE:  40,     // radius-ish size for the image
+  PLAYER_X:     80,     // fixed horizontal position
+
+  // Pipes
+  PIPE_WIDTH:   60,
+  PIPE_GAP:     160,    // vertical gap between top & bottom pipe
+  PIPE_SPEED:   2.8,
+  PIPE_SPAWN:   1600,   // ms between pipe spawns
+
+  // Ground
+  GROUND_H:     80,
+
+  // Colours
+  SKY_TOP:      '#87CEEB',
+  SKY_BOT:      '#E0F7FA',
+  GROUND_CLR:   '#8B6914',
+  GRASS_CLR:    '#4CAF50',
+  PIPE_CLR:     '#43A047',
+  PIPE_BORDER:  '#2E7D32',
+};
+
+// ============================================================
+//  CANVAS SETUP
+// ============================================================
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+canvas.width  = CFG.WIDTH;
+canvas.height = CFG.HEIGHT;
+
+// ============================================================
+//  LOAD ASSETS
+// ============================================================
+
+// Daisy image
+const daisyImg = new Image();
+daisyImg.src = 'daisy.png';
+
+// Simple jump sound generated via AudioContext (no external file)
+let audioCtx = null;
+function playJumpSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(500, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.15);
+  } catch (_) { /* audio not supported – no big deal */ }
+}
+
+// ============================================================
+//  GAME STATE
+// ============================================================
+let state = 'START';   // START | PLAYING | GAMEOVER
+let score     = 0;
+let bestScore = parseInt(localStorage.getItem('daisyBest') || '0', 10);
+
+// Player
+let player = { y: 0, vel: 0, rot: 0 };
+
+// Pipes array: each { x, topH } where topH = height of top pipe
+let pipes = [];
+let pipeTimer = 0;
+let lastTime  = 0;
+
+// ============================================================
+//  HELPERS
+// ============================================================
+
+/** Reset the game to initial playing state */
+function resetGame() {
+  player.y   = CFG.HEIGHT / 2 - 50;
+  player.vel = 0;
+  player.rot = 0;
+  pipes      = [];
+  pipeTimer  = 0;
+  score      = 0;
+}
+
+/** Make the player jump */
+function flap() {
+  if (state === 'START') {
+    resetGame();
+    state = 'PLAYING';
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+    // also perform first flap
+  }
+  if (state === 'PLAYING') {
+    player.vel = CFG.JUMP_FORCE;
+    playJumpSound();
+  }
+  if (state === 'GAMEOVER') {
+    // small delay so tap doesn't instantly restart
+    // handled by a flag set in gameOver()
+    if (canRestart) {
+      state = 'START';
+      drawStartScreen();
+    }
+  }
+}
+
+let canRestart = false;
+
+function gameOver() {
+  state = 'GAMEOVER';
+  canRestart = false;
+  if (score > bestScore) {
+    bestScore = score;
+    localStorage.setItem('daisyBest', String(bestScore));
+  }
+  drawGameOverScreen();
+  setTimeout(() => { canRestart = true; }, 600);
+}
+
+// ============================================================
+//  INPUT HANDLING  (click, tap, keyboard)
+// ============================================================
+canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); flap(); });
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); flap(); }
+});
+
+// ============================================================
+//  DRAWING FUNCTIONS
+// ============================================================
+
+/** Draw a gradient sky background */
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0, 0, 0, CFG.HEIGHT - CFG.GROUND_H);
+  grad.addColorStop(0, CFG.SKY_TOP);
+  grad.addColorStop(1, CFG.SKY_BOT);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, CFG.WIDTH, CFG.HEIGHT - CFG.GROUND_H);
+}
+
+/** Draw the ground with a grass strip */
+function drawGround() {
+  const gy = CFG.HEIGHT - CFG.GROUND_H;
+  // Grass strip
+  ctx.fillStyle = CFG.GRASS_CLR;
+  ctx.fillRect(0, gy, CFG.WIDTH, 12);
+  // Dirt
+  ctx.fillStyle = CFG.GROUND_CLR;
+  ctx.fillRect(0, gy + 12, CFG.WIDTH, CFG.GROUND_H - 12);
+}
+
+/** Draw a single pipe pair */
+function drawPipe(pipe) {
+  const { x, topH } = pipe;
+  const pw = CFG.PIPE_WIDTH;
+  const capH = 24;         // height of the cap on each pipe end
+  const capExtra = 8;      // how much wider the cap is on each side
+
+  // --- Top pipe ---
+  ctx.fillStyle = CFG.PIPE_CLR;
+  ctx.fillRect(x, 0, pw, topH);
+  // Top pipe cap
+  ctx.fillStyle = CFG.PIPE_BORDER;
+  ctx.fillRect(x - capExtra, topH - capH, pw + capExtra * 2, capH);
+
+  // --- Bottom pipe ---
+  const botY = topH + CFG.PIPE_GAP;
+  ctx.fillStyle = CFG.PIPE_CLR;
+  ctx.fillRect(x, botY, pw, CFG.HEIGHT - botY);
+  // Bottom pipe cap
+  ctx.fillStyle = CFG.PIPE_BORDER;
+  ctx.fillRect(x - capExtra, botY, pw + capExtra * 2, capH);
+}
+
+/** Draw the player (Daisy) with rotation */
+function drawPlayer() {
+  const size = CFG.PLAYER_SIZE;
+  ctx.save();
+  ctx.translate(CFG.PLAYER_X, player.y);
+  ctx.rotate(player.rot);
+
+  if (daisyImg.complete && daisyImg.naturalWidth > 0) {
+    // Draw the loaded daisy.png image
+    ctx.drawImage(daisyImg, -size, -size, size * 2, size * 2);
+  } else {
+    // Fallback circle if image hasn't loaded
+    ctx.beginPath();
+    ctx.arc(0, 0, size, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD54F';
+    ctx.fill();
+    ctx.strokeStyle = '#F57F17';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    // Simple smiley
+    ctx.fillStyle = '#333';
+    ctx.beginPath(); ctx.arc(-10, -8, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -8, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 6, 10, 0, Math.PI); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Draw current score at top-centre */
+function drawScore() {
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 4;
+  ctx.font = 'bold 48px "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.strokeText(String(score), CFG.WIDTH / 2, 60);
+  ctx.fillText(String(score), CFG.WIDTH / 2, 60);
+}
+
+/** Draw start screen */
+function drawStartScreen() {
+  drawBackground();
+  drawGround();
+
+  // Draw daisy in the centre for the start screen
+  const midY = CFG.HEIGHT / 2 - 60;
+  const sz = CFG.PLAYER_SIZE * 1.5;
+  ctx.save();
+  ctx.translate(CFG.WIDTH / 2, midY);
+  if (daisyImg.complete && daisyImg.naturalWidth > 0) {
+    ctx.drawImage(daisyImg, -sz, -sz, sz * 2, sz * 2);
+  } else {
+    ctx.beginPath(); ctx.arc(0, 0, sz, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD54F'; ctx.fill();
+  }
+  ctx.restore();
+
+  // Title
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 5;
+  ctx.font = 'bold 42px "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.strokeText('Help Daisy Fly!', CFG.WIDTH / 2, 90);
+  ctx.fillText('Help Daisy Fly!', CFG.WIDTH / 2, 90);
+
+  // Instructions
+  ctx.font = '22px "Segoe UI", Arial, sans-serif';
+  ctx.lineWidth = 3;
+  ctx.strokeText('Tap or click to flap', CFG.WIDTH / 2, CFG.HEIGHT - 140);
+  ctx.fillText('Tap or click to flap', CFG.WIDTH / 2, CFG.HEIGHT - 140);
+
+  // Best score
+  if (bestScore > 0) {
+    ctx.font = '20px "Segoe UI", Arial, sans-serif';
+    ctx.fillStyle = '#FFD54F';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.strokeText('Best: ' + bestScore, CFG.WIDTH / 2, CFG.HEIGHT - 105);
+    ctx.fillText('Best: ' + bestScore, CFG.WIDTH / 2, CFG.HEIGHT - 105);
+  }
+}
+
+/** Draw game-over screen */
+function drawGameOverScreen() {
+  // Darken overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, CFG.WIDTH, CFG.HEIGHT);
+
+  // "Game Over" text
+  ctx.fillStyle = '#FF5252';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 5;
+  ctx.font = 'bold 40px "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.strokeText('Game Over', CFG.WIDTH / 2, CFG.HEIGHT / 2 - 60);
+  ctx.fillText('Game Over', CFG.WIDTH / 2, CFG.HEIGHT / 2 - 60);
+
+  // Fun subtitle
+  ctx.fillStyle = '#fff';
+  ctx.font = '24px "Segoe UI", Arial, sans-serif';
+  ctx.lineWidth = 3;
+  ctx.strokeText('Daisy bonked!', CFG.WIDTH / 2, CFG.HEIGHT / 2 - 20);
+  ctx.fillText('Daisy bonked!', CFG.WIDTH / 2, CFG.HEIGHT / 2 - 20);
+
+  // Score
+  ctx.font = '28px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#FFD54F';
+  ctx.strokeText('Score: ' + score, CFG.WIDTH / 2, CFG.HEIGHT / 2 + 30);
+  ctx.fillText('Score: ' + score, CFG.WIDTH / 2, CFG.HEIGHT / 2 + 30);
+
+  // Best score
+  ctx.font = '22px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.strokeText('Best: ' + bestScore, CFG.WIDTH / 2, CFG.HEIGHT / 2 + 65);
+  ctx.fillText('Best: ' + bestScore, CFG.WIDTH / 2, CFG.HEIGHT / 2 + 65);
+
+  // Restart hint
+  ctx.font = '18px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#ccc';
+  ctx.fillText('Tap to try again', CFG.WIDTH / 2, CFG.HEIGHT / 2 + 110);
+}
+
+// ============================================================
+//  COLLISION DETECTION
+// ============================================================
+function checkCollisions() {
+  const px = CFG.PLAYER_X;
+  const py = player.y;
+  const r  = CFG.PLAYER_SIZE * 0.75;  // slightly forgiving hitbox
+
+  // Ground or ceiling
+  if (py + r >= CFG.HEIGHT - CFG.GROUND_H || py - r <= 0) return true;
+
+  // Pipes
+  for (const pipe of pipes) {
+    const { x, topH } = pipe;
+    const pw = CFG.PIPE_WIDTH;
+    const botY = topH + CFG.PIPE_GAP;
+
+    // Is player horizontally overlapping this pipe?
+    if (px + r > x && px - r < x + pw) {
+      // Top pipe collision
+      if (py - r < topH) return true;
+      // Bottom pipe collision
+      if (py + r > botY) return true;
+    }
+  }
+  return false;
+}
+
+// ============================================================
+//  MAIN GAME LOOP
+// ============================================================
+function loop(timestamp) {
+  if (state !== 'PLAYING') return;
+
+  const dt = Math.min(timestamp - lastTime, 30);   // cap delta to avoid huge jumps
+  lastTime = timestamp;
+  const dtScale = dt / 16.67;                       // normalise to ~60 fps
+
+  // --- Update physics ---
+  player.vel += CFG.GRAVITY * dtScale;
+  if (player.vel > CFG.MAX_FALL) player.vel = CFG.MAX_FALL;
+  player.y += player.vel * dtScale;
+
+  // Rotation: tilt up when jumping, down when falling
+  const targetRot = player.vel < 0
+    ? -0.45                                         // tilt up
+    : Math.min(player.vel / CFG.MAX_FALL, 1) * 1.2; // tilt down proportionally
+  player.rot += (targetRot - player.rot) * 0.12 * dtScale;
+
+  // --- Spawn pipes ---
+  pipeTimer += dt;
+  if (pipeTimer >= CFG.PIPE_SPAWN) {
+    pipeTimer -= CFG.PIPE_SPAWN;
+    const minTop = 60;
+    const maxTop = CFG.HEIGHT - CFG.GROUND_H - CFG.PIPE_GAP - 60;
+    const topH = minTop + Math.random() * (maxTop - minTop);
+    pipes.push({ x: CFG.WIDTH, topH, scored: false });
+  }
+
+  // --- Move pipes & score ---
+  for (let i = pipes.length - 1; i >= 0; i--) {
+    pipes[i].x -= CFG.PIPE_SPEED * dtScale;
+
+    // Score when pipe passes the player
+    if (!pipes[i].scored && pipes[i].x + CFG.PIPE_WIDTH < CFG.PLAYER_X) {
+      pipes[i].scored = true;
+      score++;
+    }
+
+    // Remove off-screen pipes
+    if (pipes[i].x + CFG.PIPE_WIDTH < -10) {
+      pipes.splice(i, 1);
+    }
+  }
+
+  // --- Collision ---
+  if (checkCollisions()) { gameOver(); return; }
+
+  // --- Draw frame ---
+  drawBackground();
+  pipes.forEach(drawPipe);
+  drawGround();
+  drawPlayer();
+  drawScore();
+
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+//  KICK OFF – draw start screen once assets are ready
+// ============================================================
+daisyImg.onload = () => drawStartScreen();
+// Also draw immediately in case image is cached or missing
+if (daisyImg.complete) drawStartScreen();
+setTimeout(drawStartScreen, 100);   // safety fallback
+</script>
+</body>
+</html>
