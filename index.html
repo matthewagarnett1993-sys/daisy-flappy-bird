@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Help Daisy Fly!</title>
+  <title>Daisy-Grace Garnett Flappy Bird</title>
   <style>
     /* ---------- Global Reset & Centering ---------- */
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,10 +21,8 @@
     canvas {
       display: block;
       background: #70c5ce;                 /* sky blue fallback */
-      border-radius: 8px;
-      box-shadow: 0 0 30px rgba(0,0,0,.4);
-      max-width: 100vw;
-      max-height: 100vh;
+      width: 100vw;
+      height: 100vh;
     }
   </style>
 </head>
@@ -36,7 +34,7 @@
 //  CONFIGURATION
 // ============================================================
 const CFG = {
-  // Canvas (logical) size
+  // Canvas (logical) size — will be overridden to fill the screen
   WIDTH:   400,
   HEIGHT:  600,
 
@@ -72,8 +70,23 @@ const CFG = {
 // ============================================================
 const canvas = document.getElementById('game');
 const ctx    = canvas.getContext('2d');
-canvas.width  = CFG.WIDTH;
-canvas.height = CFG.HEIGHT;
+
+/** Resize the canvas to fill the entire window */
+function resizeCanvas() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  CFG.WIDTH  = canvas.width;
+  CFG.HEIGHT = canvas.height;
+  CFG.PLAYER_X = Math.round(CFG.WIDTH * 0.18);
+  CFG.GROUND_H = Math.round(CFG.HEIGHT * 0.12);
+  CFG.PIPE_GAP = Math.round(CFG.HEIGHT * 0.25);
+  CFG.PLAYER_SIZE = Math.round(Math.min(CFG.WIDTH, CFG.HEIGHT) * 0.055);
+  CFG.PIPE_WIDTH = Math.round(CFG.WIDTH * 0.1);
+  // Redraw start screen if we're on it
+  if (state === 'START') drawStartScreen();
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
 
 // ============================================================
 //  LOAD ASSETS
@@ -284,10 +297,22 @@ function drawStartScreen() {
   ctx.lineWidth = 5;
   ctx.font = 'bold 42px "Segoe UI", Arial, sans-serif';
   ctx.textAlign = 'center';
-  ctx.strokeText('Help Daisy Fly!', CFG.WIDTH / 2, 90);
-  ctx.fillText('Help Daisy Fly!', CFG.WIDTH / 2, 90);
+  ctx.strokeText('Daisy-Grace Garnett', CFG.WIDTH / 2, 70);
+  ctx.fillText('Daisy-Grace Garnett', CFG.WIDTH / 2, 70);
+  ctx.font = 'bold 34px "Segoe UI", Arial, sans-serif';
+  ctx.strokeText('Flappy Bird', CFG.WIDTH / 2, 110);
+  ctx.fillText('Flappy Bird', CFG.WIDTH / 2, 110);
+
+  // "Daddy loves you" message
+  ctx.font = '26px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#FF80AB';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 3;
+  ctx.strokeText('Daddy loves you \u2764\uFE0F', CFG.WIDTH / 2, midY + sz + 40);
+  ctx.fillText('Daddy loves you \u2764\uFE0F', CFG.WIDTH / 2, midY + sz + 40);
 
   // Instructions
+  ctx.fillStyle = '#fff';
   ctx.font = '22px "Segoe UI", Arial, sans-serif';
   ctx.lineWidth = 3;
   ctx.strokeText('Tap or click to flap', CFG.WIDTH / 2, CFG.HEIGHT - 140);
@@ -338,10 +363,16 @@ function drawGameOverScreen() {
   ctx.strokeText('Best: ' + bestScore, CFG.WIDTH / 2, CFG.HEIGHT / 2 + 65);
   ctx.fillText('Best: ' + bestScore, CFG.WIDTH / 2, CFG.HEIGHT / 2 + 65);
 
+  // "Daddy loves you" message
+  ctx.font = '22px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#FF80AB';
+  ctx.strokeText('Daddy loves you \u2764\uFE0F', CFG.WIDTH / 2, CFG.HEIGHT / 2 + 100);
+  ctx.fillText('Daddy loves you \u2764\uFE0F', CFG.WIDTH / 2, CFG.HEIGHT / 2 + 100);
+
   // Restart hint
   ctx.font = '18px "Segoe UI", Arial, sans-serif';
   ctx.fillStyle = '#ccc';
-  ctx.fillText('Tap to try again', CFG.WIDTH / 2, CFG.HEIGHT / 2 + 110);
+  ctx.fillText('Tap to try again', CFG.WIDTH / 2, CFG.HEIGHT / 2 + 140);
 }
 
 // ============================================================
